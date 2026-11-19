@@ -18,15 +18,12 @@ use Psr\SimpleCache\CacheInterface;
  */
 final class FixedWindowRateLimiter implements BlacklistAwareRateLimiter
 {
-    private const string BLACKLIST_SUFFIX = '_blacklist';
-    private const string VIOLATIONS_SUFFIX = '_violations';
     private const string RESERVED_KEY_CHARS = '{}()/\@:';
 
-    private ?int $blacklistAfterViolations = null;
-    private ?int $blacklistTtl = null;
+    private readonly BlacklistTracker $blacklist;
 
     /**
-     * @param int $limit Maximum number of requests allowed within the time window
+     * @param int $limit Maximum request cost allowed within the time window
      * @param int $windowPeriod Time window in seconds
      * @param CacheInterface $store PSR-16 cache, optionally a CounterStore for atomic evaluation
      * @param ClockInterface $clock Time source, defaults to system time
@@ -48,30 +45,28 @@ final class FixedWindowRateLimiter implements BlacklistAwareRateLimiter
         if ($cacheKeyPrefix === '' || strpbrk($cacheKeyPrefix, self::RESERVED_KEY_CHARS) !== false) {
             throw new InvalidArgumentException('Cache key prefix must not be empty or contain reserved characters {}()/\@:');
         }
+
+        $this->blacklist = new BlacklistTracker($store, $windowPeriod * 2);
     }
 
     #[\Override]
     public function maybeBlacklist(int $recurringEvents, ?int $ttl = null): self
     {
-        if ($recurringEvents < 1) {
-            throw new InvalidArgumentException('Recurring events must be greater than 0.');
-        }
-        if ($ttl !== null && $ttl < 1) {
-            throw new InvalidArgumentException('Blacklist TTL must be greater than 0 or null.');
-        }
-
-        $this->blacklistAfterViolations = $recurringEvents;
-        $this->blacklistTtl = $ttl;
+        $this->blacklist->configure($recurringEvents, $ttl);
         return $this;
     }
 
     #[\Override]
-    public function consume(string $key): RateLimitResult
+    public function consume(string $key, int $cost = 1): RateLimitResult
     {
+        if ($cost < 1) {
+            throw new InvalidArgumentException('Cost must be greater than 0.');
+        }
+
         $now = $this->clock->now()->getTimestamp();
         $cacheKey = $this->cacheKeyPrefix . '_' . $key;
 
-        if ($this->isBlacklisted($cacheKey)) {
+        if ($this->blacklist->isBlacklisted($cacheKey)) {
             return new RateLimitResult(
                 status: RateLimitStatus::Blacklisted,
                 limit: $this->limit,
@@ -79,16 +74,16 @@ final class FixedWindowRateLimiter implements BlacklistAwareRateLimiter
                 remaining: 0,
                 resetTime: 0,
                 retryAfter: 0,
-                blacklistThreshold: $this->blacklistAfterViolations,
+                blacklistThreshold: $this->blacklist->threshold(),
             );
         }
 
-        $state = $this->evaluate($cacheKey, $now);
+        $state = $this->evaluate($cacheKey, $now, $cost);
         $resetTime = $state['window_start'] + $this->windowPeriod;
         $retryAfter = max(0, $resetTime - $now);
 
         if (!$state['allowed']) {
-            [$violations, $justBlacklisted] = $this->recordViolation($cacheKey);
+            [$violations, $justBlacklisted] = $this->blacklist->recordViolation($cacheKey);
 
             return new RateLimitResult(
                 status: RateLimitStatus::Limited,
@@ -98,7 +93,7 @@ final class FixedWindowRateLimiter implements BlacklistAwareRateLimiter
                 resetTime: $resetTime,
                 retryAfter: $retryAfter,
                 violations: $violations,
-                blacklistThreshold: $this->blacklistAfterViolations,
+                blacklistThreshold: $this->blacklist->threshold(),
                 justBlacklisted: $justBlacklisted,
             );
         }
@@ -118,10 +113,10 @@ final class FixedWindowRateLimiter implements BlacklistAwareRateLimiter
      *
      * @return array{requests: int, window_start: int, allowed: bool}
      */
-    private function evaluate(string $cacheKey, int $now): array
+    private function evaluate(string $cacheKey, int $now, int $cost): array
     {
         if ($this->store instanceof CounterStore) {
-            return $this->store->evaluate($cacheKey, $this->limit, $this->windowPeriod, $now);
+            return $this->store->evaluate($cacheKey, $this->limit, $this->windowPeriod, $now, $cost);
         }
 
         $data = $this->loadThrottleData($this->store->get($cacheKey), $now);
@@ -130,48 +125,13 @@ final class FixedWindowRateLimiter implements BlacklistAwareRateLimiter
             $data = ['requests' => 0, 'window_start' => $now];
         }
 
-        $allowed = $data['requests'] < $this->limit;
+        $allowed = ($data['requests'] + $cost) <= $this->limit;
         if ($allowed) {
-            $data['requests']++;
+            $data['requests'] += $cost;
             $this->store->set($cacheKey, $data, $this->windowPeriod);
         }
 
         return $data + ['allowed' => $allowed];
-    }
-
-    /**
-     * Check if a cache key is blacklisted
-     */
-    private function isBlacklisted(string $cacheKey): bool
-    {
-        if ($this->blacklistAfterViolations === null) {
-            return false;
-        }
-        return (bool) $this->store->get($cacheKey . self::BLACKLIST_SUFFIX);
-    }
-
-    /**
-     * Track a rate limit violation and maybe blacklist the client
-     *
-     * @return array{0: int, 1: bool} Violation count and whether the client was just blacklisted
-     */
-    private function recordViolation(string $cacheKey): array
-    {
-        if ($this->blacklistAfterViolations === null) {
-            return [0, false];
-        }
-
-        $violationsKey = $cacheKey . self::VIOLATIONS_SUFFIX;
-        $stored = $this->store->get($violationsKey);
-        $violations = (is_int($stored) ? $stored : 0) + 1;
-        $this->store->set($violationsKey, $violations, $this->windowPeriod * 2);
-
-        if ($violations >= $this->blacklistAfterViolations) {
-            $this->store->set($cacheKey . self::BLACKLIST_SUFFIX, true, $this->blacklistTtl);
-            return [$violations, true];
-        }
-
-        return [$violations, false];
     }
 
     /**

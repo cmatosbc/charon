@@ -19,9 +19,10 @@ interface CounterStore extends CacheInterface
      * Atomically evaluates and updates the counter for a fixed window.
      *
      * Resets the window when $now - window_start exceeds $windowPeriod and
-     * increments the request count only while it is below $limit.
+     * increments the request count by $cost only while the result stays at
+     * or below $limit.
      *
      * @return array{requests: int, window_start: int, allowed: bool} The post-evaluation window state
      */
-    public function evaluate(string $key, int $limit, int $windowPeriod, int $now): array;
+    public function evaluate(string $key, int $limit, int $windowPeriod, int $now, int $cost = 1): array;
 }

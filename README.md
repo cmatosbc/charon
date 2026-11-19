@@ -14,7 +14,8 @@ A simple yet powerful PSR-15 compliant rate limiting middleware for PHP applicat
 - 🏭 PSR-17 Response Factory for throttle responses (works with any PSR-7 implementation)
 - 🕐 PSR-20 Clock support for testable time handling
 - 📝 Optional PSR-3 Logger integration
-- ⚡ Efficient rate limiting using fixed window counters
+- ⚡ Fixed window and token bucket rate limiting algorithms
+- ⚖️ Weighted request costs — expensive endpoints can consume more quota
 - 🔒 IP or IP+User-Agent based throttling, or bring your own signature resolver
 - � Trusted proxy support for correct client IP resolution (X-Forwarded-For, IPv4 CIDR)
 - ⏭️ Bypass callable for exempt requests (health checks, internal traffic)
@@ -199,6 +200,42 @@ $middleware = new ThrottleMiddleware(
     cache: $cacheImpl,
     responseFactory: $psr17Factory,
     limiter: $myRateLimiter
+);
+```
+
+#### Token Bucket
+
+For controlled bursts with a sustained average rate, use `Charon\TokenBucketRateLimiter`: each client owns a bucket holding up to `capacity` tokens that refills at `refillRate` tokens per second — bursts up to the capacity are allowed while the long-term rate stays at the refill rate:
+
+```php
+use Charon\TokenBucketRateLimiter;
+
+$limiter = new TokenBucketRateLimiter(
+    capacity: 20,       // max burst
+    refillRate: 10.0,   // ~10 requests/second sustained
+    store: $cacheImpl
+);
+$limiter->maybeBlacklist(5, ttl: 86400);
+```
+
+#### Weighted Request Costs
+
+`consume()` accepts an optional cost, so expensive operations can drain more quota:
+
+```php
+$limiter->consume($clientKey, cost: 5);
+```
+
+In the middleware, the `costResolver` callable maps requests to costs — e.g. charge writes more than reads:
+
+```php
+$middleware = new ThrottleMiddleware(
+    limit: 100,
+    windowPeriod: 3600,
+    cache: $cacheImpl,
+    responseFactory: $psr17Factory,
+    costResolver: fn (ServerRequestInterface $request): int =>
+        $request->getMethod() === 'GET' ? 1 : 5
 );
 ```
 

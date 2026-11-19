@@ -31,6 +31,7 @@ final class ThrottleMiddleware implements MiddlewareInterface
     private readonly LoggerInterface $logger;
     private readonly SignatureStrategy|Closure $signatureStrategy;
     private readonly ?Closure $bypass;
+    private readonly ?Closure $costResolver;
     private readonly RateLimiterInterface $limiter;
 
     /**
@@ -45,6 +46,7 @@ final class ThrottleMiddleware implements MiddlewareInterface
      *        or a callable(ServerRequestInterface): string returning the client discriminator
      * @param string[] $trustedProxies Proxy IPs or IPv4 CIDR ranges trusted to provide X-Forwarded-For
      * @param callable|null $bypass callable(ServerRequestInterface): bool — matching requests skip rate limiting
+     * @param callable|null $costResolver callable(ServerRequestInterface): int — quota cost per request, defaults to 1
      * @param string $cacheKeyPrefix Cache key prefix, must not contain the characters {}()/\@:
      * @param RateLimiterInterface|null $limiter Custom rate limiter; when null a
      *        FixedWindowRateLimiter is built from $limit, $windowPeriod, $cache, $clock and $cacheKeyPrefix
@@ -60,6 +62,7 @@ final class ThrottleMiddleware implements MiddlewareInterface
         SignatureStrategy|callable $signatureStrategy = SignatureStrategy::Ip,
         private readonly array $trustedProxies = [],
         ?callable $bypass = null,
+        ?callable $costResolver = null,
         private readonly string $cacheKeyPrefix = 'charon',
         ?RateLimiterInterface $limiter = null,
     ) {
@@ -78,6 +81,7 @@ final class ThrottleMiddleware implements MiddlewareInterface
             ? $signatureStrategy
             : Closure::fromCallable($signatureStrategy);
         $this->bypass = $bypass !== null ? Closure::fromCallable($bypass) : null;
+        $this->costResolver = $costResolver !== null ? Closure::fromCallable($costResolver) : null;
         $this->limiter = $limiter ?? new FixedWindowRateLimiter(
             limit: $limit,
             windowPeriod: $windowPeriod,
@@ -243,7 +247,8 @@ final class ThrottleMiddleware implements MiddlewareInterface
 
         $signature = $this->getRequestSignature($request);
         $clientInfo = $this->getClientInfo($request);
-        $result = $this->limiter->consume($signature);
+        $cost = $this->costResolver !== null ? (int) ($this->costResolver)($request) : 1;
+        $result = $this->limiter->consume($signature, $cost);
 
         if ($result->justBlacklisted) {
             $this->logger->alert('Client blacklisted due to recurring rate limit violations', [

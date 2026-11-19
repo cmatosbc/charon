@@ -13,6 +13,7 @@ interface RateLimiterInterface
      * Evaluates a single request for the given client key.
      *
      * @param string $key Unique client identifier (e.g. a hashed signature)
+     * @param int $cost Quota consumed by this request; must be greater than 0
      */
-    public function consume(string $key): RateLimitResult;
+    public function consume(string $key, int $cost = 1): RateLimitResult;
 }

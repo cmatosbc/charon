@@ -520,7 +520,7 @@ final class ThrottleMiddlewareTest extends TestCase
     public function testMaybeBlacklistWithoutBlacklistAwareLimiterThrows(): void
     {
         $limiter = new class implements RateLimiterInterface {
-            public function consume(string $key): RateLimitResult
+            public function consume(string $key, int $cost = 1): RateLimitResult
             {
                 return new RateLimitResult(
                     status: RateLimitStatus::Allowed,
@@ -543,6 +543,33 @@ final class ThrottleMiddlewareTest extends TestCase
 
         $this->expectException(LogicException::class);
         $middleware->maybeBlacklist(1);
+    }
+
+    public function testCostResolverChargesPerRequest(): void
+    {
+        $middleware = new ThrottleMiddleware(
+            limit: 3,
+            windowPeriod: 3600,
+            cache: $this->cache,
+            responseFactory: $this->responseFactory,
+            costResolver: fn (ServerRequestInterface $r): int =>
+                $r->getMethod() === 'POST' ? 2 : 1,
+            clock: $this->clock,
+        );
+
+        $get = $this->createRequest(method: 'GET');
+        $post = $this->createRequest(method: 'POST');
+        $handler = $this->createHandler();
+
+        $response1 = $middleware->process($get, $handler);
+        $this->assertEquals(200, $response1->getStatusCode());
+        $this->assertEquals('2', $response1->getHeaderLine('RateLimit-Remaining'));
+
+        $response2 = $middleware->process($post, $handler);
+        $this->assertEquals(200, $response2->getStatusCode());
+        $this->assertEquals('0', $response2->getHeaderLine('RateLimit-Remaining'));
+
+        $this->assertEquals(429, $middleware->process($get, $handler)->getStatusCode());
     }
 
     public function testOptionalLogging(): void

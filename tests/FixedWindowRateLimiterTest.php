@@ -64,6 +64,38 @@ final class FixedWindowRateLimiterTest extends TestCase
         $this->assertLessThanOrEqual(3600, $result->retryAfter);
     }
 
+    public function testConsumeWithCost(): void
+    {
+        $limiter = new FixedWindowRateLimiter(
+            limit: 3,
+            windowPeriod: 3600,
+            store: $this->cache,
+            clock: $this->clock,
+        );
+
+        $result = $limiter->consume('client-a', cost: 2);
+        $this->assertSame(RateLimitStatus::Allowed, $result->status);
+        $this->assertSame(2, $result->requests);
+        $this->assertSame(1, $result->remaining);
+
+        // 2 + 2 exceeds the limit of 3
+        $result = $limiter->consume('client-a', cost: 2);
+        $this->assertSame(RateLimitStatus::Limited, $result->status);
+    }
+
+    public function testInvalidCostThrows(): void
+    {
+        $limiter = new FixedWindowRateLimiter(
+            limit: 3,
+            windowPeriod: 3600,
+            store: $this->cache,
+            clock: $this->clock,
+        );
+
+        $this->expectException(InvalidArgumentException::class);
+        $limiter->consume('client-a', cost: 0);
+    }
+
     public function testCounterResetsAfterWindow(): void
     {
         $limiter = new FixedWindowRateLimiter(

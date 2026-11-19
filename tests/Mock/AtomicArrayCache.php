@@ -14,7 +14,7 @@ class AtomicArrayCache extends ArrayCache implements CounterStore
      * @return array{requests: int, window_start: int, allowed: bool}
      */
     #[\Override]
-    public function evaluate(string $key, int $limit, int $windowPeriod, int $now): array
+    public function evaluate(string $key, int $limit, int $windowPeriod, int $now, int $cost = 1): array
     {
         $data = $this->get($key);
 
@@ -27,9 +27,9 @@ class AtomicArrayCache extends ArrayCache implements CounterStore
             $data = ['requests' => 0, 'window_start' => $now];
         }
 
-        $allowed = $data['requests'] < $limit;
+        $allowed = ($data['requests'] + $cost) <= $limit;
         if ($allowed) {
-            $data['requests']++;
+            $data['requests'] += $cost;
             $this->set($key, $data, $windowPeriod);
         }
 

@@ -1,7 +1,21 @@
 {
     "name": "cmatosbc/charon",
-    "description": "Throttling in a simple and effective manner.",
+    "description": "PSR-15 rate limiting middleware: fixed window and token bucket throttling with PSR-16 storage",
     "type": "library",
+    "keywords": [
+        "rate limiting",
+        "rate limiter",
+        "throttling",
+        "throttle",
+        "middleware",
+        "psr-15",
+        "psr-7",
+        "psr-16",
+        "token bucket",
+        "fixed window",
+        "http",
+        "api"
+    ],
     "autoload": {
         "psr-4": {
             "Charon\\": "src/"

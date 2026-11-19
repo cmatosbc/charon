@@ -13,15 +13,17 @@
         }
     },
     "require": {
+        "php": ">=8.3",
+        "psr/clock": "^1.0",
         "psr/simple-cache": "^3.0",
-        "psr/cache": "^3.0",
+        "psr/http-factory": "^1.0",
         "psr/http-message": "^2.0",
-        "nyholm/psr7": "^1.8",
         "psr/http-server-handler": "^1.0",
         "psr/http-server-middleware": "^1.0",
         "psr/log": "^3.0"
     },
     "require-dev": {
+        "nyholm/psr7": "^1.8",
         "phpunit/phpunit": "^11.4"
     },
     "scripts": {

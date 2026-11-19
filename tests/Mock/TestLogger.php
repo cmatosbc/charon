@@ -1,14 +1,17 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Charon\Tests\Mock;
 
 use Psr\Log\AbstractLogger;
 use Psr\Log\LogLevel;
 
-class TestLogger extends AbstractLogger
+final class TestLogger extends AbstractLogger
 {
     private array $records = [];
 
+    #[\Override]
     public function log($level, string|\Stringable $message, array $context = []): void
     {
         $this->records[] = [

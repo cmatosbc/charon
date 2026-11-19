@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Charon\Tests;
 
 use PHPUnit\Framework\TestCase as BaseTestCase;
@@ -35,15 +37,13 @@ abstract class TestCase extends BaseTestCase
     protected function createHandler(int $status = 200, array $headers = []): RequestHandlerInterface
     {
         return new class($status, $headers) implements RequestHandlerInterface {
-            private $status;
-            private $headers;
-
-            public function __construct(int $status, array $headers)
-            {
-                $this->status = $status;
-                $this->headers = $headers;
+            public function __construct(
+                private readonly int $status,
+                private readonly array $headers
+            ) {
             }
 
+            #[\Override]
             public function handle(ServerRequestInterface $request): ResponseInterface
             {
                 return new Response($this->status, $this->headers);
